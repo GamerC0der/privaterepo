@@ -6,6 +6,7 @@
 <link rel="icon" href="data:,">
 </head>
 <body>
+<input type="file" id="iso" accept=".iso">
 <div id="screen_container">
   <div id="canvas_container">
     <canvas></canvas>
@@ -14,15 +15,20 @@
 </div>
 <script src="v86/libv86.js"></script>
 <script>
-  new V86({
-    wasm_path: "v86/v86.wasm",
-    bios: { url: "v86/seabios.bin" },
-    vga_bios: { url: "v86/vgabios.bin" },
-    cdrom: { url: "kiosk.iso" },
-    memory_size: 512 * 1024 * 1024,
-    vga_memory_size: 16 * 1024 * 1024,
-    screen_container: document.getElementById("screen_container"),
-    autostart: true,
+  document.getElementById("iso").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.remove();
+    new V86({
+      wasm_path: "v86/v86.wasm",
+      bios: { url: "v86/seabios.bin" },
+      vga_bios: { url: "v86/vgabios.bin" },
+      cdrom: { buffer: await file.arrayBuffer() },
+      memory_size: 512 * 1024 * 1024,
+      vga_memory_size: 16 * 1024 * 1024,
+      screen_container: document.getElementById("screen_container"),
+      autostart: true,
+    });
   });
 </script>
 </body>
