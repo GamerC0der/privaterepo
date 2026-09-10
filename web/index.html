@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiosk OS — in-browser test</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e14;
+    --panel: #131824;
+    --border: #232b3d;
+    --text: #e6e6e6;
+    --muted: #8b95a7;
+    --accent: #4f8cff;
+    --ok: #38c172;
+    --warn: #f2b134;
+    --err: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .wrap {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 1rem;
+    height: 100%;
+    padding: 1rem;
+  }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; height: auto; }
+  }
+  .stage {
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    min-height: 360px;
+  }
+  .stage canvas { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+  .stage .placeholder { color: var(--muted); text-align: center; padding: 2rem; font-size: .9rem; }
+  .side { display: flex; flex-direction: column; gap: .8rem; overflow-y: auto; }
+  h1 { font-size: 1.05rem; margin: 0 0 .2rem; }
+  .sub { color: var(--muted); font-size: .8rem; margin: 0 0 .4rem; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: .9rem;
+  }
+  label { display: block; font-size: .78rem; color: var(--muted); margin: .5rem 0 .25rem; }
+  label:first-child { margin-top: 0; }
+  input[type=text], input[type=number], select {
+    width: 100%; background: #0e1420; border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: .4rem .5rem; font-size: .85rem;
+  }
+  input[type=file] { font-size: .78rem; color: var(--muted); }
+  .row { display: flex; gap: .5rem; }
+  .row > * { flex: 1; }
+  button {
+    background: var(--accent); color: white; border: none; border-radius: 6px;
+    padding: .55rem .8rem; font-size: .85rem; font-weight: 600; cursor: pointer;
+    width: 100%; margin-top: .6rem;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  button.secondary { background: #232b3d; }
+  .status { display: flex; align-items: center; gap: .4rem; font-size: .8rem; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.err { background: var(--err); }
+  pre#log {
+    background: #05070c; border: 1px solid var(--border); border-radius: 6px;
+    padding: .6rem; font-size: .72rem; line-height: 1.4; overflow: auto;
+    height: 220px; margin: 0; white-space: pre-wrap; word-break: break-all;
+    color: #9fd3a3;
+  }
+  .stat { display: flex; justify-content: space-between; font-size: .78rem; padding: .15rem 0; }
+  .stat span:last-child { color: var(--muted); }
+  a { color: var(--accent); }
+  .hint { font-size: .72rem; color: var(--muted); margin-top: .3rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <div class="placeholder" id="placeholder">
+      Load <code>kiosk.iso</code> and press Start to boot the kiosk OS<br>
+      entirely inside this browser tab.
+    </div>
+  </div>
+
+  <div class="side">
+    <div>
+      <h1>Kiosk OS — browser boot test</h1>
+      <p class="sub">A from-scratch Linux ISO that boots straight into a fullscreen
+      browser and runs nothing else, executed here by
+      <a href="https://github.com/copy/v86" target="_blank" rel="noopener">v86</a>,
+      an x86-to-WebAssembly emulator. No install, no server for the emulator itself.</p>
+    </div>
+
+    <div class="panel">
+      <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Idle</span></div>
+
+      <label for="isoUrl">ISO URL (fetched relative to this page)</label>
+      <input type="text" id="isoUrl" value="kiosk.iso">
+
+      <label for="isoFile">…or pick a local kiosk.iso file</label>
+      <input type="file" id="isoFile" accept=".iso">
+      <p class="hint">Use the file picker when opening this page directly as
+      <code>file://</code> — browsers block fetch() of local files there.</p>
+
+      <div class="row">
+        <div>
+          <label for="ram">RAM (MB)</label>
+          <input type="number" id="ram" value="512" min="128" max="4096" step="128">
+        </div>
+        <div>
+          <label for="vram">Video RAM (MB)</label>
+          <input type="number" id="vram" value="16" min="4" max="128" step="4">
+        </div>
+      </div>
+
+      <label for="relay">Network relay URL (optional, for internet access)</label>
+      <input type="text" id="relay" placeholder="wss://your-relay-host/">
+      <p class="hint">The guest's NIC only reaches the outside world if you run a
+      <a href="https://github.com/copy/v86/blob/master/docs/networking.md" target="_blank" rel="noopener">v86 network relay</a>
+      and point it here. Without one, the guest still boots and DHCPs, it just has
+      nowhere to route to — this is a browser-sandbox limitation of any
+      in-tab TCP/IP stack, not specific to this OS.</p>
+
+      <button id="startBtn">Start</button>
+      <button id="stopBtn" class="secondary" disabled>Stop</button>
+      <button id="fsBtn" class="secondary" disabled>Fullscreen</button>
+    </div>
+
+    <div class="panel">
+      <div class="stat"><span>State</span><span id="statState">stopped</span></div>
+      <div class="stat"><span>Boot elapsed</span><span id="statElapsed">–</span></div>
+      <div class="stat"><span>RAM allotted</span><span id="statRam">–</span></div>
+    </div>
+
+    <div class="panel" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <label style="margin-top:0;">Serial console</label>
+      <pre id="log"></pre>
+    </div>
+  </div>
+</div>
+
+<script src="v86/libv86.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const stage = $("stage"), placeholder = $("placeholder");
+  const startBtn = $("startBtn"), stopBtn = $("stopBtn"), fsBtn = $("fsBtn");
+  const statusDot = $("statusDot"), statusText = $("statusText");
+  const logEl = $("log");
+  const statState = $("statState"), statElapsed = $("statElapsed"), statRam = $("statRam");
+
+  let emulator = null;
+  let startTime = 0;
+  let elapsedTimer = null;
+
+  function log(line) {
+    logEl.textContent += line + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setStatus(text, kind) {
+    statusText.textContent = text;
+    statusDot.className = "dot" + (kind ? " " + kind : "");
+    statState.textContent = text;
+  }
+
+  async function getIsoBuffer() {
+    const fileInput = $("isoFile");
+    if (fileInput.files && fileInput.files[0]) {
+      return { buffer: await fileInput.files[0].arrayBuffer() };
+    }
+    const url = $("isoUrl").value.trim();
+    if (!url) throw new Error("No ISO URL or file given");
+    return { url, async: true };
+  }
+
+  startBtn.addEventListener("click", async () => {
+    startBtn.disabled = true;
+    setStatus("Loading ISO…", "warn");
+    logEl.textContent = "";
+
+    let cdrom;
+    try {
+      cdrom = await getIsoBuffer();
+    } catch (e) {
+      setStatus("Error: " + e.message, "err");
+      startBtn.disabled = false;
+      return;
+    }
+
+    placeholder.remove();
+    const screenContainer = document.createElement("div");
+    screenContainer.style.width = "100%";
+    screenContainer.style.height = "100%";
+    screenContainer.style.display = "flex";
+    screenContainer.style.alignItems = "center";
+    screenContainer.style.justifyContent = "center";
+    stage.appendChild(screenContainer);
+
+    const ramMb = parseInt($("ram").value, 10) || 512;
+    const vramMb = parseInt($("vram").value, 10) || 16;
+    statRam.textContent = ramMb + " MB";
+
+    const options = {
+      wasm_path: "v86/v86.wasm",
+      bios: { url: "v86/seabios.bin" },
+      vga_bios: { url: "v86/vgabios.bin" },
+      cdrom,
+      memory_size: ramMb * 1024 * 1024,
+      vga_memory_size: vramMb * 1024 * 1024,
+      screen_container: screenContainer,
+      autostart: true,
+      cmdline_append: "",
+    };
+
+    const relay = $("relay").value.trim();
+    if (relay) {
+      options.network_relay_url = relay;
+    }
+
+    setStatus("Booting…", "warn");
+    startTime = performance.now();
+    elapsedTimer = setInterval(() => {
+      statElapsed.textContent = ((performance.now() - startTime) / 1000).toFixed(1) + "s";
+    }, 200);
+
+    try {
+      emulator = new V86(options);
+    } catch (e) {
+      setStatus("Error: " + e.message, "err");
+      startBtn.disabled = false;
+      clearInterval(elapsedTimer);
+      return;
+    }
+
+    emulator.add_listener("emulator-loaded", () => {
+      log("[v86] emulator loaded, CPU starting");
+      setStatus("Running", "ok");
+      stopBtn.disabled = false;
+      fsBtn.disabled = false;
+    });
+
+    emulator.add_listener("serial0-output-char", (ch) => {
+      if (ch === "\r") return;
+      if (ch === "\n") { log(""); return; }
+      const lines = logEl.textContent.split("\n");
+      lines[lines.length - 1] += ch;
+      logEl.textContent = lines.join("\n");
+      logEl.scrollTop = logEl.scrollHeight;
+    });
+
+    emulator.add_listener("download-progress", (e) => {
+      if (e.file_name && e.file_name.includes("iso")) {
+        if (e.total) {
+          setStatus("Downloading ISO " + Math.round(100 * e.loaded / e.total) + "%", "warn");
+        }
+      }
+    });
+
+    emulator.add_listener("download-error", (e) => {
+      setStatus("Download error: " + (e.message || "failed to fetch ISO"), "err");
+    });
+  });
+
+  stopBtn.addEventListener("click", () => {
+    if (!emulator) return;
+    emulator.stop();
+    emulator = null;
+    setStatus("Stopped", "");
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    fsBtn.disabled = true;
+    clearInterval(elapsedTimer);
+  });
+
+  fsBtn.addEventListener("click", () => {
+    if (stage.requestFullscreen) stage.requestFullscreen();
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+#!/bin/sh
+# PID 1 for the kiosk OS: mount essentials, bring up networking, then
+# supervise Xorg + the kiosk browser forever. Nothing else runs.
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /dev/pts /dev/shm /run
+mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+mkdir -p /run/user/0
+chmod 700 /run/user/0
+
+CMDLINE=$(cat /proc/cmdline)
+hostname kiosk 2>/dev/null
+
+log() { echo "[kiosk-init] $*" > /dev/console 2>/dev/null; }
+
+# reap orphaned children so PID 1 doesn't accumulate zombies
+(while true; do wait -n 2>/dev/null || sleep 5; done) &
+
+log "starting udev, coldplugging devices..."
+/usr/lib/systemd/systemd-udevd --daemon
+udevadm trigger --action=add --type=subsystems
+udevadm trigger --action=add --type=devices
+udevadm settle --timeout=10
+
+log "bringing up network (dhcp)..."
+for i in /sys/class/net/*; do
+  ifc=$(basename "$i")
+  [ "$ifc" = "lo" ] && continue
+  ip link set "$ifc" up 2>/dev/null
+  udhcpc -i "$ifc" -b -q -t 5 -T 2 -x hostname:kiosk >/dev/console 2>&1 &
+done
+ip link set lo up 2>/dev/null
+
+case " $CMDLINE " in
+  *" kiosk.debug "*)
+    log "kiosk.debug set: starting debug shell on ttyS0 and tty2"
+    setsid sh -c 'exec agetty -a root ttyS0 115200 linux' </dev/ttyS0 >/dev/ttyS0 2>&1 &
+    setsid sh -c 'exec agetty -a root tty2 linux' </dev/tty2 >/dev/tty2 2>&1 &
+    ;;
+esac
+
+export HOME=/root
+export XDG_RUNTIME_DIR=/run/user/0
+export KIOSK_HOME="file:///usr/local/share/kiosk/welcome.html"
+for kv in $CMDLINE; do
+  case "$kv" in
+    kiosk.home=*) KIOSK_HOME="${kv#kiosk.home=}" ;;
+  esac
+done
+export KIOSK_HOME
+
+log "starting kiosk display loop"
+while true; do
+  Xorg :0 vt1 -nolisten tcp -noreset > /var/log/Xorg.log 2>&1 &
+  XPID=$!
+  n=0
+  while [ ! -e /tmp/.X11-unix/X0 ] && [ $n -lt 100 ]; do
+    sleep 0.2
+    n=$((n+1))
+  done
+  if [ ! -e /tmp/.X11-unix/X0 ]; then
+    log "Xorg failed to start, retrying in 3s"
+    kill "$XPID" 2>/dev/null
+    sleep 3
+    continue
+  fi
+  log "Xorg up, launching kiosk-browser -> $KIOSK_HOME"
+  DISPLAY=:0 dbus-launch --exit-with-session /usr/local/bin/kiosk-browser
+  log "kiosk-browser exited, restarting in 1s"
+  kill "$XPID" 2>/dev/null
+  sleep 1
+done

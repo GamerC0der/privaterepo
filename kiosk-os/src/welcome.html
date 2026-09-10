@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Kiosk OS</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0e14;color:#e6e6e6;font-family:sans-serif;
+    display:flex;align-items:center;justify-content:center;}
+  .card{max-width:640px;padding:2.5rem;text-align:center;}
+  h1{font-size:2rem;margin:0 0 .5rem;}
+  p{color:#9aa4b2;line-height:1.5;}
+  code{background:#1a2130;padding:.15em .4em;border-radius:4px;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Kiosk OS is running</h1>
+    <p>This machine boots straight into a fullscreen browser and runs nothing else.
+    No desktop, no window manager chrome, no other applications.</p>
+    <p>Point it somewhere by passing <code>kiosk.home=&lt;url&gt;</code> on the kernel
+    command line, or edit <code>/usr/local/share/kiosk/welcome.html</code>.</p>
+  </div>
+</body>
+</html>
