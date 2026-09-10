@@ -19,7 +19,7 @@
     const file = e.target.files[0];
     if (!file) return;
     e.target.remove();
-    new V86({
+    const emulator = new V86({
       wasm_path: "v86/v86.wasm",
       bios: { url: "v86/seabios.bin" },
       vga_bios: { url: "v86/vgabios.bin" },
@@ -28,6 +28,12 @@
       vga_memory_size: 16 * 1024 * 1024,
       screen_container: document.getElementById("screen_container"),
       autostart: true,
+    });
+    // no visible UI: boot output goes to devtools console only (F12)
+    let line = "";
+    emulator.add_listener("serial0-output-char", (ch) => {
+      if (ch === "\n") { console.log("[kiosk]", line); line = ""; }
+      else if (ch !== "\r") { line += ch; }
     });
   });
 </script>
